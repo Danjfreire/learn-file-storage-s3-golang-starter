@@ -2,7 +2,11 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
@@ -28,10 +32,56 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-
 	fmt.Println("uploading thumbnail for video", videoID, "by user", userID)
 
-	// TODO: implement the upload here
+	const maxMemory = 10 << 20 // 10MB
+	r.ParseMultipartForm(maxMemory)
+	file, header, err := r.FormFile("thumbnail")
 
-	respondWithJSON(w, http.StatusOK, struct{}{})
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Couldn't get thumbnail from form data", err)
+		return
+	}
+	defer file.Close()
+
+	contentType := header.Header.Get("Content-Type")
+
+	if contentType != "image/png" && contentType != "image/jpeg" {
+		respondWithError(w, http.StatusBadRequest, "Unsupported thumbnail format", nil)
+		return
+	}
+
+	videoMetadata, err := cfg.db.GetVideo(videoID)
+
+	if err != nil || videoMetadata.UserID != userID {
+		respondWithError(w, http.StatusUnauthorized, "User cannot access video", err)
+		return
+	}
+
+	fileExtension := strings.Split(contentType, "/")[1]
+	filePath := filepath.Join(cfg.assetsRoot, fmt.Sprintf("%v.%v", videoIDString, fileExtension))
+
+	thumbnailFile, err := os.Create(filePath)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "failed to create thumbnail file", err)
+		return
+	}
+	defer thumbnailFile.Close()
+
+	_, err = io.Copy(thumbnailFile, file)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "failed to save thumbnail file", err)
+		return
+	}
+
+	thumbnailUrl := fmt.Sprintf("http://localhost:%v/assets/%v.%v", cfg.port, videoIDString, fileExtension)
+	videoMetadata.ThumbnailURL = &thumbnailUrl
+	err = cfg.db.UpdateVideo(videoMetadata)
+
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "failed to update video metadata", err)
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, videoMetadata)
 }
