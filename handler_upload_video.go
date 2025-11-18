@@ -9,6 +9,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
+	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/media"
 	"github.com/google/uuid"
 )
 
@@ -49,7 +50,8 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	tmpFile, err := os.CreateTemp("", "tubely-upload.mp4")
+	tmpFilePath := "tubely-upload.mp4"
+	tmpFile, err := os.CreateTemp("", tmpFilePath)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "couldn't create temp file", err)
 		return
@@ -64,9 +66,25 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	aspectRatio, err := media.GetVideoAspectRatio(tmpFile.Name())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "failed to determine video aspect ratio", err)
+		return
+	}
+
+	var filePrefix string
+	switch aspectRatio {
+	case "16:9":
+		filePrefix = "landscape"
+	case "9:16":
+		filePrefix = "portrait"
+	default:
+		filePrefix = "other"
+	}
+
 	tmpFile.Seek(0, io.SeekStart)
 	rndKey := uuid.New().String()
-	fileKey := fmt.Sprintf("%v.mp4", rndKey)
+	fileKey := fmt.Sprintf("%v/%v.mp4", filePrefix, rndKey)
 	s3Config := s3.PutObjectInput{
 		Bucket:      &cfg.s3Bucket,
 		Key:         &fileKey,
