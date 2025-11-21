@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os/exec"
+	"strings"
 )
 
 type ffprobeOutput struct {
@@ -44,4 +45,15 @@ func GetVideoAspectRatio(path string) (string, error) {
 	}
 
 	return "other", nil
+}
+
+func ProcessVideoForFastStart(path string) (string, error) {
+	outputPath := strings.TrimSuffix(path, ".mp4") + "_faststart.mp4"
+	cmd := exec.Command("ffmpeg", "-i", path, "-c", "copy", "-movflags", "faststart", "-f", "mp4", outputPath)
+	err := cmd.Run()
+	if err != nil {
+		return "", err
+	}
+
+	return outputPath, nil
 }
